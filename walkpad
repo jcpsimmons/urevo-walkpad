@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Control the Urevo walking pad through the Walkpad app's local API.
+#
+#   walkpad                  open the app (connects, starts belt, applies preset)
+#   walkpad status           current reading as JSON
+#   walkpad up|down [mph]    notch speed (default 0.1)
+#   walkpad speed <mph>
+#   walkpad incline-up|incline-down [pct]   notch incline (default 1)
+#   walkpad incline <pct>
+#   walkpad preset           go back to the saved preset
+#   walkpad save-preset      save current speed + incline as the preset
+#   walkpad start|pause|stop
+#   walkpad quit             close the app and release the pad
+set -euo pipefail
+URL=http://127.0.0.1:47827
+cmd=${1:-open}
+
+call() { curl -sf --max-time 40 "$URL/$1"; }
+
+case "$cmd" in
+  open|go)
+    # -g: show the window without stealing keyboard focus (its arrow keys change speed).
+    if call status >/dev/null 2>&1; then
+      call status; echo
+      exit 0
+    fi
+    open -g -a Walkpad
+    # Wait for the connection and the preset to land.
+    for _ in $(seq 1 60); do
+      out=$(call status 2>/dev/null || true)
+      if [[ $out == *'"connected":true'* ]]; then sleep 4; call status; echo; exit 0; fi
+      sleep 1
+    done
+    echo "Walkpad opened but has not connected yet. Is the pad on and the phone app closed?" >&2
+    exit 1
+    ;;
+  quit)
+    osascript -e 'quit app "Walkpad"' ;;
+  -h|--help|help)
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)
+    path=$cmd
+    [[ $# -ge 2 ]] && path="$cmd?v=$2"
+    if ! out=$(call "$path"); then
+      echo "Walkpad app is not running. Start it with: walkpad" >&2
+      exit 1
+    fi
+    echo "$out"
+    [[ $out == *'"ok":true'* ]]
+    ;;
+esac
