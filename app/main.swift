@@ -1,4 +1,4 @@
-// Walkpad: a small window that drives a Urevo walking pad (URTM054) over Bluetooth FTMS.
+// Walkpad: a small window that drives a Urevo walking pad (URTM...) over Bluetooth FTMS.
 // On launch it connects, starts the belt if needed and applies the saved preset. While it
 // runs it also answers http://127.0.0.1:47827/<command> so the `walkpad` CLI and agents can
 // control the same session without Bluetooth permission. Closing the window quits the app.
@@ -7,7 +7,7 @@ import CoreBluetooth
 import Network
 import SwiftUI
 
-let padName = "URTM054"
+let padNamePrefix = "URTM"  // Urevo treadmills advertise as URTM<model>, e.g. URTM054
 let apiPort: UInt16 = 47827
 let kmhPerMph = 1.609344
 
@@ -127,7 +127,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
 
     func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
         let name = p.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        guard name == padName else { return }
+        guard let name, name.hasPrefix(padNamePrefix) else { return }
         c.stopScan()
         peripheral = p
         p.delegate = self

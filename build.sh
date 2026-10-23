@@ -6,7 +6,7 @@ APP=build/Walkpad.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp app/Info.plist "$APP/Contents/Info.plist"
-swiftc -parse-as-library -swift-version 5 -O -target arm64-apple-macos14.0 \
+swiftc -parse-as-library -swift-version 5 -O -target "$(uname -m)-apple-macos14.0" \
   app/main.swift -o "$APP/Contents/MacOS/Walkpad"
 codesign --force --sign - "$APP"
 mkdir -p ~/Applications ~/.local/bin
