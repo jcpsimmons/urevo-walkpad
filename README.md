@@ -108,7 +108,8 @@ connection and everything else goes through the local port.
 The local development build can receive HeartCast heart rate over Bluetooth and
 preview speed adjustments for a 139-149 BPM target. The controller requires
 incline 9% and caps speed at 3.0 mph. This target is a configured preference,
-not a universal definition of Zone 2. Live hardware validation is pending.
+not a universal definition of Zone 2. HeartCast reception and an automatic speed increase have been verified on the pad.
+The center-seeking policy below has simulation coverage; live validation is pending.
 
 1. Open HeartCast on iPhone and Watch and start its workout on the Watch.
 2. Run `walkpad monitor` to open Walkpad without starting the belt or applying a preset.
@@ -116,8 +117,16 @@ not a universal definition of Zone 2. Live hardware validation is pending.
 4. Once walking at incline 9% and no more than 3.0 mph, `walkpad zone-on` enables control.
 5. Use `walkpad zone-off` to disable control while leaving speed unchanged.
 
-The controller collects roughly 30 seconds of readings and changes speed by
-0.1 mph at most once every 45 seconds. Manual app/API controls cancel automation.
+The controller collects roughly 30 seconds of readings and approaches 144 BPM,
+using 142-146 BPM as its settling band. Once settled, it holds speed anywhere
+within 139-149 BPM. A correction requires the average to stay outside that
+outer range for 30 seconds continuously; returning inside resets that timer.
+After a correction it approaches the center again.
+
+Changes are 0.1 mph, at least 45 seconds apart. Reversing the last adjustment's
+direction requires 120 seconds since that adjustment. This allows movement
+within the target range without continually changing speed at its edges.
+Manual app/API controls cancel automation.
 Heart-rate loss lasting over 15 seconds, invalid readings, or treadmill data
 older than 5 seconds also disable it. The belt keeps its last speed; automation
 never restarts itself. At minimum speed with heart rate above the target, the

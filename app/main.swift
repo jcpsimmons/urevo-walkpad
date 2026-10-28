@@ -344,7 +344,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
                 guard !fresh.fault else { disableZone(fresh.message); return fresh.message }
                 guard fresh.delta != 0 else { return fresh.message }
                 let result = try await setSpeed(min(zone.maximumMph, baseMph + fresh.delta))
-                zone.lastAdjustment = Date.timeIntervalSinceReferenceDate
+                zone.recordAdjustment(fresh.delta, at: Date.timeIntervalSinceReferenceDate)
                 return result
             }
             if generation == zoneGeneration {
@@ -364,7 +364,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
         }
         zoneGeneration += 1
         zoneEnabled = true
-        zone.lastAdjustment = Date.timeIntervalSinceReferenceDate
+        zone.begin(at: Date.timeIntervalSinceReferenceDate)
         zoneMessage = "Active: 139-149 BPM, incline 9%, speed ceiling 3.0 mph"
         return zoneMessage
     }

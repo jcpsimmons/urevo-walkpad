@@ -55,7 +55,9 @@ while the belt ramps; report the target. Reply in one short line, e.g.
 - `walkpad zone-on` enables automatic speed adjustment only on explicit request. It requires a running belt,
   incline 9%, speed at or below 3.0 mph, and at least 25 seconds of fresh heart-rate samples.
 - `walkpad zone-off` disables automation without changing belt speed.
-- Target: 139-149 BPM. Speed ceiling: 3.0 mph. Adjustments: 0.1 mph, at least 45 seconds apart.
+- Approach 144 BPM, settle within 142-146, then hold throughout 139-149 BPM.
+- Correct only after the average remains outside 139-149 for 30 seconds, then approach the center again.
+- Speed ceiling: 3.0 mph. Adjustments: 0.1 mph, at least 45 seconds apart; reversals wait 120 seconds.
 - Automation turns off on manual app/API commands, lost HR, stale treadmill data, stopped belt,
   or changed incline. It does not restart automatically, stop the belt on signal loss, or lower incline.
 - Do not claim live readings or automatic control are tested until actual device data confirms them.

@@ -24,11 +24,34 @@ struct ZonePolicy {
     let maximumMph = 3.0
     private(set) var samples: [(time: TimeInterval, bpm: Double)] = []
     var lastAdjustment = -Double.infinity
+    private(set) var settled = false
+    private var excursionSince: TimeInterval?
+    private var lastDirection = 0.0
+
+    mutating func begin(at time: TimeInterval) {
+        settled = false
+        excursionSince = nil
+        lastDirection = 0
+        lastAdjustment = time
+    }
+    mutating func recordAdjustment(_ delta: Double, at time: TimeInterval) {
+        lastAdjustment = time
+        lastDirection = delta
+        // After a sustained excursion, approach the center before holding again.
+        settled = false
+        excursionSince = nil
+    }
     mutating func add(_ bpm: Int, at time: TimeInterval) {
         samples.append((time, Double(bpm)))
         samples.removeAll { time - $0.time > 35 }
+        guard samples.count >= 4, let first = samples.first,
+              time - first.time >= 25, let mean = average else { return }
+        if !settled, (142...146).contains(mean) { settled = true }
+        if settled && (mean < low || mean > high) {
+            if excursionSince == nil { excursionSince = time }
+        } else { excursionSince = nil }
     }
-    mutating func samplesReset() { samples.removeAll() }
+    mutating func samplesReset() { samples.removeAll(); settled = false; excursionSince = nil }
     var average: Double? {
         samples.isEmpty ? nil : samples.map(\.bpm).reduce(0, +) / Double(samples.count)
     }
@@ -52,17 +75,27 @@ struct ZonePolicy {
               latest.time - first.time >= 25 else { return ZoneDecision(message: "Collecting 30 seconds of heart rate") }
         let mean = recent.map(\.bpm).reduce(0, +) / Double(recent.count)
         guard now - lastAdjustment >= 45 else { return ZoneDecision(message: "Waiting for response to last adjustment") }
-        if mean > high {
-            guard mph > minimumMph + 0.05 else {
-                return ZoneDecision(message: "Above target at minimum speed: pause or lower incline manually", fault: true)
+        if settled {
+            if (low...high).contains(mean) { return ZoneDecision(message: "Settled: hold within 139-149 BPM") }
+            guard let since = excursionSince, now - since >= 30 else {
+                return ZoneDecision(message: "Waiting for 30 seconds persistently outside 139-149 BPM")
             }
-            return ZoneDecision(delta: -0.1, message: "Above 149 BPM: lower speed 0.1 mph")
         }
-        if mean < low && latest.bpm < low {
-            guard mph < maximumMph - 0.05 else { return ZoneDecision(message: "Below target at 3.0 mph ceiling") }
-            return ZoneDecision(delta: 0.1, message: "Below 139 BPM: raise speed 0.1 mph")
+        // A small center band prevents chasing an exact 144 BPM reading.
+        let delta: Double = mean < 142 && latest.bpm < 142 ? 0.1 : (mean > 146 && latest.bpm > 146 ? -0.1 : 0)
+        guard delta != 0 else { return ZoneDecision(message: "Hold near 144 BPM") }
+        if delta < 0 && mph <= minimumMph + 0.05 {
+            return ZoneDecision(message: "Above target at minimum speed: pause or lower incline manually", fault: true)
         }
-        return ZoneDecision(message: "Hold speed")
+        if delta > 0 && mph >= maximumMph - 0.05 {
+            return ZoneDecision(message: "Below center at 3.0 mph ceiling")
+        }
+        if lastDirection * delta < 0 && now - lastAdjustment < 120 {
+            return ZoneDecision(message: "Waiting 120 seconds before reversing speed direction")
+        }
+        return ZoneDecision(delta: delta, message: delta > 0
+                            ? "Approaching 144 BPM: raise speed 0.1 mph"
+                            : "Approaching 144 BPM: lower speed 0.1 mph")
     }
 }
 
