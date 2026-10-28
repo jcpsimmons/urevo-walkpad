@@ -47,3 +47,15 @@ while the belt ramps; report the target. Reply in one short line, e.g.
 - Limits: 0.6-4.0 mph in 0.1 steps, incline 0-9% in 1% steps. Values outside are clamped.
 - Only one Bluetooth connection at a time: the Urevo phone app can't connect while
   Walkpad is open. `walkpad quit` releases the pad.
+
+## Heart-rate control (local development)
+
+- `walkpad monitor` opens without starting the belt or applying a preset. Use this for HeartCast setup.
+- `walkpad heart` reads current BPM, freshness, and a proposed speed adjustment. It never moves the belt.
+- `walkpad zone-on` enables automatic speed adjustment only on explicit request. It requires a running belt,
+  incline 9%, speed at or below 2.5 mph, and at least 25 seconds of fresh heart-rate samples.
+- `walkpad zone-off` disables automation without changing belt speed.
+- Target: 139-149 BPM. Speed ceiling: 2.5 mph. Adjustments: 0.1 mph, at least 45 seconds apart.
+- Automation turns off on manual app/API commands, lost HR, stale treadmill data, stopped belt,
+  or changed incline. It does not restart automatically, stop the belt on signal loss, or lower incline.
+- Do not claim live readings or automatic control are tested until actual device data confirms them.

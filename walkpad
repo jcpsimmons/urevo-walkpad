@@ -10,6 +10,9 @@
 #   walkpad preset           go back to the saved preset
 #   walkpad save-preset      save current speed + incline as the preset
 #   walkpad start|pause|stop
+#   walkpad monitor          open without starting belt or applying preset
+#   walkpad heart            live HeartCast readings and Zone 2 preview
+#   walkpad zone-on|zone-off  enable/disable 139-149 BPM speed control
 #   walkpad quit             close the app and release the pad
 set -euo pipefail
 URL=http://127.0.0.1:47827
@@ -34,10 +37,13 @@ case "$cmd" in
     echo "Walkpad opened but has not connected yet. Is the pad on and the phone app closed?" >&2
     exit 1
     ;;
+  monitor)
+    open -g -a Walkpad --args --monitor
+    ;;
   quit)
     osascript -e 'quit app "Walkpad"' ;;
   -h|--help|help)
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *)
     path=$cmd
     [[ $# -ge 2 ]] && path="$cmd?v=$2"

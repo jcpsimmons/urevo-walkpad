@@ -103,6 +103,36 @@ Agents running inside some apps (the Claude desktop app, for one) get killed by
 macOS the moment they touch Bluetooth. That's why the app owns the Bluetooth
 connection and everything else goes through the local port.
 
+## Heart-rate mode (development)
+
+The local development build can receive HeartCast heart rate over Bluetooth and
+preview speed adjustments for a 139-149 BPM target. The controller requires
+incline 9% and caps speed at 2.5 mph. This target is a configured preference,
+not a universal definition of Zone 2. Live hardware validation is pending.
+
+1. Open HeartCast on iPhone and Watch and start its workout on the Watch.
+2. Run `walkpad monitor` to open Walkpad without starting the belt or applying a preset.
+3. Run `walkpad heart` to check BPM, sample age, and the proposed adjustment.
+4. Once walking at incline 9% and no more than 2.5 mph, `walkpad zone-on` enables control.
+5. Use `walkpad zone-off` to disable control while leaving speed unchanged.
+
+The controller collects roughly 30 seconds of readings and changes speed by
+0.1 mph at most once every 45 seconds. Manual app/API controls cancel automation.
+Heart-rate loss lasting over 15 seconds, invalid readings, or treadmill data
+older than 5 seconds also disable it. The belt keeps its last speed; automation
+never restarts itself. At minimum speed with heart rate above the target, the
+app asks you to pause or lower incline manually. Maintaining maximum incline
+cannot guarantee the target heart rate is achievable.
+
+Preview mode sends no control commands. Normal launch still applies the saved
+preset. The agent skill includes the new commands. Policy and packet-decoding
+tests run without a treadmill:
+
+```bash
+swiftc -swift-version 5 app/HeartRate.swift tests/ZonePolicyTests.swift -o /tmp/walkpad-zone-tests
+/tmp/walkpad-zone-tests
+```
+
 ## Limits and known issues
 
 - Speed is 0.6-4.0 mph in 0.1 steps, incline 0-9% in 1% steps. Out-of-range values are clamped.

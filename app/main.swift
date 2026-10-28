@@ -93,6 +93,18 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
     private var hasControl = false
     private var presetApplied = false
     private var lastCommand = Date.distantPast
+    let heart = HeartRateReceiver()
+    @Published var heartBpm: Int?
+    @Published var zoneEnabled = false
+    @Published var zonePreview = "Waiting for live data"
+    @Published var zoneMessage = "Preview only; target 139-149 BPM"
+    private var zone = ZonePolicy()
+    private var zoneGeneration = 0
+    private var zoneBusy = false
+    private var zoneTimer: Timer?
+    private var telemetryTime = Date.distantPast
+    private var heartTime = Date.distantPast
+    private let monitorOnly = CommandLine.arguments.contains("--monitor")
 
     var presetMph: Double {
         get { UserDefaults.standard.double(forKey: "presetMph") }
@@ -107,6 +119,20 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
         UserDefaults.standard.register(defaults: ["presetMph": 2.5, "presetIncline": 9.0])
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
+        heart.onSample = { [weak self] bpm in
+            guard let self else { return }
+            heartBpm = bpm
+            if let bpm {
+                heartTime = Date()
+                zone.add(bpm, at: Date.timeIntervalSinceReferenceDate)
+            } else {
+                zone.samplesReset()
+                disableZone("Heart rate lost; automatic control disabled")
+            }
+        }
+        zoneTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.zoneTick() }
+        }
     }
 
     // MARK: Bluetooth plumbing
@@ -142,6 +168,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
     func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) { scan() }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        disableZone("Pad disconnected; automatic control disabled")
         ready = false
         hasControl = false
         controlPoint = nil
@@ -166,11 +193,12 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
     }
 
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
-        guard let v = ch.value else { return }
+        guard error == nil, let v = ch.value else { return }
         let b = [UInt8](v)
         switch ch.uuid {
         case GATT.treadmillData:
             stats = parseTreadmillData(v)
+            telemetryTime = Date()
             if !ready, controlPoint?.isNotifying == true { becomeReady() }
         case GATT.controlPoint:
             if let pending { self.pending = nil; pending.cont.resume(returning: v) }
@@ -188,7 +216,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
     private func becomeReady() {
         ready = true
         state = "Connected"
-        guard !presetApplied else { return }
+        guard !monitorOnly, !presetApplied else { return }
         presetApplied = true
         Task { message = await run(applyPreset) }
     }
@@ -211,7 +239,7 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
             }
         }
         let r = [UInt8](reply)
-        guard r.count >= 3, r[0] == 0x80, r[2] == 1 else { throw PadError.refused(bytes[0], r.count >= 3 ? r[2] : 0) }
+        guard r.count >= 3, r[0] == 0x80, r[1] == bytes[0], r[2] == 1 else { throw PadError.refused(bytes[0], r.count >= 3 ? r[2] : 0) }
     }
 
     private func ensureControl() async throws {
@@ -282,6 +310,65 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
         message = String(format: "preset saved: %.1f mph, incline %.0f%%", presetMph, presetIncline)
     }
 
+    // MARK: Heart-rate preview and opt-in speed control
+
+    private var zoneDecision: ZoneDecision {
+        zone.decide(now: Date.timeIntervalSinceReferenceDate, mph: stats.mph,
+                    minimumMph: ceil(speedRangeKmh.lo / kmhPerMph * 10) / 10,
+                    telemetryAge: Date().timeIntervalSince(telemetryTime),
+                    incline: stats.inclinePct, connected: ready)
+    }
+
+    func disableZone(_ reason: String) {
+        zoneGeneration += 1
+        zoneEnabled = false
+        zoneMessage = reason
+    }
+
+    private func zoneTick() {
+        if Date().timeIntervalSince(heartTime) > 15 { heartBpm = nil }
+        let decision = zoneDecision
+        zonePreview = decision.message
+        if !zoneEnabled { return }
+        if decision.fault { disableZone(decision.message); return }
+        zoneMessage = decision.message
+        guard decision.delta != 0, !zoneBusy else { return }
+        zoneBusy = true
+        let generation = zoneGeneration
+        Task {
+            let result = await run { [self] in
+                guard zoneEnabled, generation == zoneGeneration else { return "Automatic adjustment cancelled" }
+                try await ensureControl()
+                guard zoneEnabled, generation == zoneGeneration else { return "Automatic adjustment cancelled" }
+                let fresh = zoneDecision
+                guard !fresh.fault else { disableZone(fresh.message); return fresh.message }
+                guard fresh.delta != 0 else { return fresh.message }
+                let result = try await setSpeed(min(zone.maximumMph, baseMph + fresh.delta))
+                zone.lastAdjustment = Date.timeIntervalSinceReferenceDate
+                return result
+            }
+            if generation == zoneGeneration {
+                if result.hasPrefix("Error") { disableZone(result) }
+                else { zoneMessage = result }
+            }
+            zoneBusy = false
+        }
+    }
+
+    private func enableZone() -> String {
+        let decision = zoneDecision
+        guard !decision.fault, zone.samples.count >= 4,
+              let first = zone.samples.first, let last = zone.samples.last,
+              last.time - first.time >= 25 else {
+            return "Error: need fresh heart rate for 30 seconds, running belt at no more than 2.5 mph, and incline 9%. " + decision.message
+        }
+        zoneGeneration += 1
+        zoneEnabled = true
+        zone.lastAdjustment = Date.timeIntervalSinceReferenceDate
+        zoneMessage = "Active: 139-149 BPM, incline 9%, speed ceiling 2.5 mph"
+        return zoneMessage
+    }
+
     // MARK: Commands shared by the window and the local API
 
     var statusDict: [String: Any] {
@@ -292,15 +379,33 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
         return ["connected": ready, "state": state, "mph": num(stats.mph), "incline": num(stats.inclinePct, 0),
                 "target_mph": num(targetMph), "target_incline": num(targetIncline, 0),
                 "miles": num(stats.miles, 2), "elapsed": stats.clock, "steps": stats.steps, "kcal": stats.kcal,
-                "preset_mph": num(presetMph), "preset_incline": num(presetIncline, 0)]
+                "preset_mph": num(presetMph), "preset_incline": num(presetIncline, 0),
+                "heart_bpm": heartBpm.map { $0 as Any } ?? NSNull(),
+                "heart_state": heart.state, "heart_age_seconds": heartTime == .distantPast ? NSNull() : num(Date().timeIntervalSince(heartTime)),
+                "zone_enabled": zoneEnabled, "zone_low": 139, "zone_high": 149,
+                "zone_max_mph": zone.maximumMph, "zone_message": zoneMessage,
+                "zone_preview": zoneDecision.message]
     }
 
     func handle(_ path: String) async -> [String: Any] {
         let comps = URLComponents(string: "http://localhost" + path)
         let cmd = (comps?.path ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let value = (comps?.queryItems?.first?.value).flatMap(Double.init)
+        if cmd == "zone-off" {
+            disableZone("Automatic control off; speed unchanged")
+            return ["ok": true, "msg": zoneMessage, "status": statusDict]
+        }
+        if cmd == "zone-on" {
+            let result = enableZone()
+            return ["ok": !result.hasPrefix("Error"), "msg": result, "status": statusDict]
+        }
+        if cmd == "heart" { return ["ok": heartBpm != nil, "msg": heart.state, "status": statusDict] }
         if cmd == "status" || cmd.isEmpty { return ["ok": ready, "msg": state, "status": statusDict] }
         if cmd == "save-preset" { savePreset(); return ["ok": true, "msg": message, "status": statusDict] }
+        if value?.isFinite == false { return ["ok": false, "msg": "Invalid numeric value", "status": statusDict] }
+        if ["preset", "climb", "up", "down", "speed", "incline-up", "incline-down", "incline", "start", "pause", "stop"].contains(cmd) {
+            disableZone("Manual command; automatic control off")
+        }
         guard ready else { return ["ok": false, "msg": state, "status": statusDict] }
         let msg = await run { [self] in
             switch cmd {
@@ -424,6 +529,17 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            VStack(spacing: 5) {
+                Text(pad.heartBpm.map { "Heart rate: \($0) BPM" } ?? "Waiting for HeartCast")
+                    .font(.headline).monospacedDigit()
+                Text("Target 139-149 BPM · incline 9% · ceiling 2.5 mph").font(.caption2)
+                HStack {
+                    Button("Enable Zone 2") { pad.act("zone-on") }.disabled(pad.zoneEnabled)
+                    Button("Disable") { pad.act("zone-off") }
+                }
+                Text(pad.zoneMessage).font(.caption).fixedSize(horizontal: false, vertical: true)
+                if !pad.zoneEnabled { Text(pad.zonePreview).font(.caption2).foregroundStyle(.secondary) }
+            }
             HStack {
                 Button("Start") { pad.act("start") }
                 Button("Pause") { pad.act("pause") }
