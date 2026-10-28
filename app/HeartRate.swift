@@ -21,7 +21,7 @@ struct ZoneDecision: Equatable {
 // Pure control policy, also exercised without a Bluetooth connection in tests.
 struct ZonePolicy {
     let low = 139.0, high = 149.0
-    let maximumMph = 2.5
+    let maximumMph = 3.0
     private(set) var samples: [(time: TimeInterval, bpm: Double)] = []
     var lastAdjustment = -Double.infinity
     mutating func add(_ bpm: Int, at time: TimeInterval) {
@@ -45,7 +45,7 @@ struct ZonePolicy {
             return ZoneDecision(message: "Incline must be 9%; automatic control disabled", fault: true)
         }
         guard mph <= maximumMph + 0.15 else {
-            return ZoneDecision(message: "Speed exceeds 2.5 mph ceiling; automatic control disabled", fault: true)
+            return ZoneDecision(message: "Speed exceeds 3.0 mph ceiling; automatic control disabled", fault: true)
         }
         let recent = samples.filter { now - $0.time <= 35 }
         guard recent.count >= 4, let first = recent.first,
@@ -59,7 +59,7 @@ struct ZonePolicy {
             return ZoneDecision(delta: -0.1, message: "Above 149 BPM: lower speed 0.1 mph")
         }
         if mean < low && latest.bpm < low {
-            guard mph < maximumMph - 0.05 else { return ZoneDecision(message: "Below target at 2.5 mph ceiling") }
+            guard mph < maximumMph - 0.05 else { return ZoneDecision(message: "Below target at 3.0 mph ceiling") }
             return ZoneDecision(delta: 0.1, message: "Below 139 BPM: raise speed 0.1 mph")
         }
         return ZoneDecision(message: "Hold speed")

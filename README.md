@@ -107,13 +107,13 @@ connection and everything else goes through the local port.
 
 The local development build can receive HeartCast heart rate over Bluetooth and
 preview speed adjustments for a 139-149 BPM target. The controller requires
-incline 9% and caps speed at 2.5 mph. This target is a configured preference,
+incline 9% and caps speed at 3.0 mph. This target is a configured preference,
 not a universal definition of Zone 2. Live hardware validation is pending.
 
 1. Open HeartCast on iPhone and Watch and start its workout on the Watch.
 2. Run `walkpad monitor` to open Walkpad without starting the belt or applying a preset.
 3. Run `walkpad heart` to check BPM, sample age, and the proposed adjustment.
-4. Once walking at incline 9% and no more than 2.5 mph, `walkpad zone-on` enables control.
+4. Once walking at incline 9% and no more than 3.0 mph, `walkpad zone-on` enables control.
 5. Use `walkpad zone-off` to disable control while leaving speed unchanged.
 
 The controller collects roughly 30 seconds of readings and changes speed by

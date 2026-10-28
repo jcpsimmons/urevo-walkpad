@@ -360,12 +360,12 @@ final class Pad: NSObject, ObservableObject, @preconcurrency CBCentralManagerDel
         guard !decision.fault, zone.samples.count >= 4,
               let first = zone.samples.first, let last = zone.samples.last,
               last.time - first.time >= 25 else {
-            return "Error: need fresh heart rate for 30 seconds, running belt at no more than 2.5 mph, and incline 9%. " + decision.message
+            return "Error: need fresh heart rate for 30 seconds, running belt at no more than 3.0 mph, and incline 9%. " + decision.message
         }
         zoneGeneration += 1
         zoneEnabled = true
         zone.lastAdjustment = Date.timeIntervalSinceReferenceDate
-        zoneMessage = "Active: 139-149 BPM, incline 9%, speed ceiling 2.5 mph"
+        zoneMessage = "Active: 139-149 BPM, incline 9%, speed ceiling 3.0 mph"
         return zoneMessage
     }
 
@@ -532,7 +532,7 @@ struct ContentView: View {
             VStack(spacing: 5) {
                 Text(pad.heartBpm.map { "Heart rate: \($0) BPM" } ?? "Waiting for HeartCast")
                     .font(.headline).monospacedDigit()
-                Text("Target 139-149 BPM · incline 9% · ceiling 2.5 mph").font(.caption2)
+                Text("Target 139-149 BPM · incline 9% · ceiling 3.0 mph").font(.caption2)
                 HStack {
                     Button("Enable Zone 2") { pad.act("zone-on") }.disabled(pad.zoneEnabled)
                     Button("Disable") { pad.act("zone-off") }
